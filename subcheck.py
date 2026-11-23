@@ -42,27 +42,21 @@ def parse_networks(text):
 
 
 def read_interactive():
-    """Читает вставленный текст. Конец ввода — пустая строка после списка или Ctrl+D."""
-    print("Вставь список подсетей и нажми Enter (пустая строка = конец, или Ctrl+D):",
-          file=sys.stderr)
-    lines, found = [], False
+    """Читает вставленный текст. Ввод заканчивается сам через секунду
+    после последней строки с подсетями (или по Ctrl+D)."""
+    print("Вставь список подсетей и нажми Enter:", file=sys.stderr)
+    fd = sys.stdin.fileno()
+    buf, found = b"", False
     while True:
-        line = sys.stdin.readline()
-        if not line:
+        if found and not select.select([fd], [], [], 1.0)[0]:
             break
-        lines.append(line)
-        if IP_RE.search(line):
+        data = os.read(fd, 65536)
+        if not data:
+            break
+        buf += data
+        if IP_RE.search(buf.decode("utf-8", "ignore")):
             found = True
-        elif found and not line.strip():
-            break
-    # дочитываем «хвост» вставки, чтобы он не улетел в шелл после выхода
-    try:
-        while select.select([sys.stdin], [], [], 0.3)[0]:
-            if not sys.stdin.readline():
-                break
-    except (OSError, ValueError):
-        pass
-    return "".join(lines)
+    return buf.decode("utf-8", "ignore")
 
 
 def get_input(args):
