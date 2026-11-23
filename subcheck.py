@@ -8,7 +8,7 @@ subcheck — быстро находит подсети, в которых пи�
   subcheck -c              # взять подсети из буфера обмена (нужен Termux:API)
   cat list.txt | subcheck
 
-Подсети ищутся в любом тексте: 104.105.1.0/24, 1.2.3.0/22, или просто IP (= /24).
+Подсети ищутся в любом тексте: 104.105.1.0/24, 1.2.3.0/22, 31.56.48.#, просто IP (= /24).
 """
 import argparse
 import ipaddress
@@ -28,17 +28,28 @@ IP_RE = re.compile(r"(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3})(?:\s*/\s*(\d{1,2}))?(?!
 # ---------------------------------------------------------------- input
 
 
+WILD_RE = re.compile(r"(?<![\d.#])(\d{1,3})\.(\d{1,3})\.(\d{1,3}|#)\.#(?![\d.#])")
+
+
 def parse_networks(text):
-    nets, seen = [], set()
+    """Ищет подсети в любом тексте:
+    1.2.3.0/24, 1.2.3.4 (= /24), 1.2.3.# (= /24), 1.2.#.# (= /16)."""
+    found = []
     for ip, prefix in IP_RE.findall(text):
+        found.append(f"{ip}/{prefix or 24}")
+    for a, b, c in WILD_RE.findall(text):
+        found.append(f"{a}.{b}.0.0/16" if c == "#" else f"{a}.{b}.{c}.0/24")
+    nets, seen = [], set()
+    for f in found:
         try:
-            net = ipaddress.ip_network(f"{ip}/{prefix or 24}", strict=False)
+            net = ipaddress.ip_network(f, strict=False)
         except ValueError:
             continue
         if net not in seen:
             seen.add(net)
             nets.append(net)
-    return nets
+    # выкидываем «заголовки» вроде 104.105.#.#, если внутри них уже есть подсети из списка
+    return [n for n in nets if not any(m != n and m.subnet_of(n) for m in nets)]
 
 
 def read_interactive():
@@ -55,6 +66,8 @@ def read_interactive():
             break
         buf += data
         if IP_RE.search(buf.decode("utf-8", "ignore")):
+            found = True
+        elif WILD_RE.search(buf.decode("utf-8", "ignore")):
             found = True
     return buf.decode("utf-8", "ignore")
 
